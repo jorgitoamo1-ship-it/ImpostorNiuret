@@ -1,0 +1,1029 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>El Impostor - Multijugador Real</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #1e1b4b 100%);
+            min-height: 100vh;
+        }
+        
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+        
+        .neon-text {
+            text-shadow: 0 0 10px rgba(168, 85, 247, 0.5),
+                         0 0 20px rgba(168, 85, 247, 0.3),
+                         0 0 30px rgba(168, 85, 247, 0.1);
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #a855f7 0%, #7c3aed 100%);
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px -5px rgba(168, 85, 247, 0.4);
+        }
+        
+        .btn-danger {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+        }
+        
+        .btn-success {
+            background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+        }
+        
+        .player-card {
+            transition: all 0.3s ease;
+        }
+        
+        .player-card:hover {
+            transform: scale(1.05);
+        }
+        
+        .animate-pulse-slow {
+            animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+        }
+        
+        .float-animation {
+            animation: float 3s ease-in-out infinite;
+        }
+        
+        .hidden { display: none !important; }
+        
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: rgba(255,255,255,0.1); }
+        ::-webkit-scrollbar-thumb { background: rgba(168, 85, 247, 0.5); border-radius: 4px; }
+        
+        .loading-spinner {
+            border: 4px solid rgba(255,255,255,0.1);
+            border-left-color: #a855f7;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="text-white overflow-x-hidden">
+
+    <!-- Configuración Firebase (INSTRUCCIONES) -->
+    <div id="firebaseConfigModal" class="fixed inset-0 bg-black/90 flex items-center justify-center p-4 z-50">
+        <div class="glass-panel rounded-2xl p-8 max-w-lg w-full">
+            <h2 class="text-2xl font-bold mb-4 text-purple-300">⚙️ Configuración Requerida</h2>
+            <p class="mb-4 text-gray-300">Para que el juego funcione en multiplayer real, necesitas configurar Firebase:</p>
+            
+            <ol class="list-decimal list-inside space-y-2 text-gray-300 mb-6 text-sm">
+                <li>Ve a <a href="https://console.firebase.google.com" target="_blank" class="text-purple-400 underline">console.firebase.google.com</a></li>
+                <li>Crea un proyecto nuevo (gratuito)</li>
+                <li>Ve a "Realtime Database" y créala (modo bloqueado por ahora)</li>
+                <li>Ve a Configuración del proyecto > General</li>
+                <li>Copia la configuración y pégala abajo</li>
+            </ol>
+
+            <textarea id="firebaseConfigInput" placeholder='Pega aquí tu configuración de Firebase...&#10;{&#10;  "apiKey": "...",&#10;  "authDomain": "...",&#10;  "databaseURL": "...",&#10;  ...&#10;}' 
+                      class="w-full h-32 px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white text-xs font-mono placeholder-gray-500 focus:outline-none focus:border-purple-500 transition mb-4"></textarea>
+            
+            <button onclick="saveFirebaseConfig()" class="btn-primary w-full py-3 rounded-xl font-semibold">
+                Guardar y Continuar
+            </button>
+            
+            <p class="mt-4 text-xs text-gray-500 text-center">
+                O usa el modo DEMO para probar localmente
+            </p>
+            <button onclick="enableDemoMode()" class="w-full mt-2 py-2 rounded-xl text-gray-400 hover:text-white transition text-sm">
+                Modo Demo (Offline)
+            </button>
+        </div>
+    </div>
+
+    <!-- Pantalla de Inicio -->
+    <div id="homeScreen" class="hidden min-h-screen flex flex-col items-center justify-center p-4">
+        <div class="text-center mb-8 float-animation">
+            <h1 class="text-6xl md:text-8xl font-extrabold mb-4 neon-text text-purple-400">
+                EL IMPOSTOR
+            </h1>
+            <p class="text-xl text-gray-300 max-w-md mx-auto">
+                ¿Quién es el impostor? Uno de vosotros no sabe la palabra secreta.
+            </p>
+        </div>
+        
+        <div class="glass-panel rounded-2xl p-8 w-full max-w-md space-y-4">
+            <input type="text" id="playerName" placeholder="Tu nombre" maxlength="12"
+                   class="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 transition">
+            
+            <div class="flex gap-3">
+                <button onclick="createRoom()" class="btn-primary flex-1 py-3 rounded-xl font-semibold text-lg">
+                    Crear Sala
+                </button>
+                <button onclick="showJoinRoom()" class="glass-panel flex-1 py-3 rounded-xl font-semibold text-lg hover:bg-white/10 transition">
+                    Unirse
+                </button>
+            </div>
+        </div>
+        
+        <div class="mt-8 text-gray-400 text-sm">
+            Máximo 10 jugadores • Juego en tiempo real
+        </div>
+    </div>
+
+    <!-- Pantalla Unirse a Sala -->
+    <div id="joinScreen" class="hidden min-h-screen flex flex-col items-center justify-center p-4">
+        <div class="glass-panel rounded-2xl p-8 w-full max-w-md">
+            <h2 class="text-3xl font-bold mb-6 text-center text-purple-300">Unirse a Sala</h2>
+            
+            <input type="text" id="roomCode" placeholder="Código de sala (4 letras)" maxlength="4"
+                   class="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 transition mb-4 uppercase text-center text-2xl tracking-widest font-mono">
+            
+            <button onclick="joinRoom()" class="btn-primary w-full py-3 rounded-xl font-semibold text-lg mb-3">
+                Entrar
+            </button>
+            <button onclick="showHome()" class="w-full py-3 rounded-xl font-semibold text-gray-400 hover:text-white transition">
+                Volver
+            </button>
+        </div>
+    </div>
+
+    <!-- Pantalla de Sala/Lobby -->
+    <div id="lobbyScreen" class="hidden min-h-screen p-4 md:p-8">
+        <div class="max-w-4xl mx-auto">
+            <div class="glass-panel rounded-2xl p-6 mb-6 flex flex-col md:flex-row justify-between items-center gap-4">
+                <div>
+                    <h2 class="text-2xl font-bold text-purple-300">Sala: <span id="displayRoomCode" class="font-mono text-3xl text-white"></span></h2>
+                    <p class="text-gray-400 mt-1">Esperando jugadores... <span id="playerCount">1</span>/10</p>
+                </div>
+                <div class="flex gap-3 flex-wrap justify-center">
+                    <button onclick="copyRoomCode()" class="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 transition text-sm">
+                        Copiar Código 📋
+                    </button>
+                    <button onclick="leaveRoom()" class="px-4 py-2 rounded-lg bg-red-500/20 hover:bg-red-500/40 transition text-sm text-red-300">
+                        Salir
+                    </button>
+                    <button id="startGameBtn" onclick="startGame()" class="btn-success px-6 py-2 rounded-lg font-semibold hidden">
+                        Iniciar Juego
+                    </button>
+                </div>
+            </div>
+
+            <div id="playersList" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                <!-- Jugadores se añaden dinámicamente -->
+            </div>
+
+            <div class="mt-8 text-center">
+                <p class="text-gray-400 text-sm mb-2">Comparte este enlace con tus amigos:</p>
+                <div class="inline-flex items-center gap-2 glass-panel px-4 py-2 rounded-lg">
+                    <span class="text-sm text-gray-400" id="shareLink"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pantalla del Juego -->
+    <div id="gameScreen" class="hidden min-h-screen p-4 md:p-8">
+        <div class="max-w-4xl mx-auto">
+            <!-- Header del Juego -->
+            <div class="glass-panel rounded-2xl p-6 mb-6 text-center">
+                <div id="roleDisplay" class="mb-4">
+                    <h2 class="text-3xl font-bold mb-2 text-green-400">Eres Tripulante 👨‍🚀</h2>
+                    <p class="text-xl text-gray-300">La palabra secreta es:</p>
+                    <div class="mt-4 text-5xl font-bold text-purple-400" id="secretWord">---</div>
+                </div>
+                
+                <div id="impostorView" class="hidden">
+                    <h2 class="text-4xl font-bold text-red-500 mb-2">¡ERES EL IMPOSTOR! 🎭</h2>
+                    <p class="text-xl text-gray-300">No sabes la palabra. Debes fingir.</p>
+                    <p class="text-sm text-gray-500 mt-2">Escucha las pistas de los demás</p>
+                </div>
+
+                <div id="roundInfo" class="mt-4 text-gray-400">
+                    Ronda <span id="currentRound">1</span> de 2 • Turno de: <span id="currentTurn" class="text-purple-300 font-bold">---</span>
+                </div>
+            </div>
+
+            <!-- Área de Pistas -->
+            <div class="glass-panel rounded-2xl p-6 mb-6">
+                <h3 class="text-xl font-bold mb-4 text-purple-300">Pistas dadas:</h3>
+                <div id="cluesList" class="space-y-3 max-h-64 overflow-y-auto">
+                    <p class="text-gray-500 italic">Aún no hay pistas...</p>
+                </div>
+            </div>
+
+            <!-- Input de Pista -->
+            <div id="clueInputArea" class="glass-panel rounded-2xl p-6 mb-6 hidden">
+                <p class="text-center mb-4 text-lg">¡Es tu turno de dar una pista!</p>
+                <div class="flex gap-3">
+                    <input type="text" id="clueInput" placeholder="Escribe UNA palabra..." maxlength="20"
+                           class="flex-1 px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500">
+                    <button onclick="submitClue()" class="btn-primary px-6 py-3 rounded-xl font-semibold">
+                        Enviar
+                    </button>
+                </div>
+                <p class="text-sm text-gray-400 mt-2 text-center">Solo una palabra permitida (sin espacios)</p>
+            </div>
+
+            <!-- Esperando turno -->
+            <div id="waitingArea" class="glass-panel rounded-2xl p-6 mb-6 text-center">
+                <div class="loading-spinner mx-auto mb-3"></div>
+                <p class="text-gray-400">Esperando a que otros jugadores den sus pistas...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pantalla de Votación -->
+    <div id="votingScreen" class="hidden min-h-screen p-4 md:p-8">
+        <div class="max-w-2xl mx-auto text-center">
+            <h2 class="text-4xl font-bold mb-6 text-purple-300">🗳️ ¡Tiempo de Votar!</h2>
+            <p class="text-xl mb-8 text-gray-300">¿Quién crees que es el impostor?</p>
+            
+            <div id="votingList" class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
+                <!-- Opciones de votación -->
+            </div>
+
+            <div id="votingStatus" class="glass-panel rounded-xl p-4 text-gray-400">
+                Esperando votos... <span id="votesCount">0</span>/<span id="totalVoters">0</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pantalla de Resultados -->
+    <div id="resultScreen" class="hidden min-h-screen p-4 md:p-8 flex items-center justify-center">
+        <div class="glass-panel rounded-2xl p-8 max-w-2xl w-full text-center">
+            <h2 class="text-4xl font-bold mb-6" id="resultTitle">Resultados</h2>
+            
+            <div id="resultContent" class="mb-8">
+                <!-- Contenido dinámico -->
+            </div>
+
+            <div class="space-y-3">
+                <button onclick="playAgain()" class="btn-primary w-full py-3 rounded-xl font-semibold text-lg">
+                    Jugar de Nuevo
+                </button>
+                <button onclick="backToLobby()" class="w-full py-3 rounded-xl font-semibold text-gray-400 hover:text-white transition">
+                    Volver al Lobby
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Notificación -->
+    <div id="notificationModal" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+        <div class="glass-panel rounded-2xl p-6 max-w-md w-full text-center">
+            <div class="text-5xl mb-4" id="notificationIcon">ℹ️</div>
+            <h3 class="text-2xl font-bold mb-2" id="notificationTitle">Título</h3>
+            <p class="text-gray-300 mb-6" id="notificationMessage">Mensaje</p>
+            <button onclick="closeNotification()" class="btn-primary px-6 py-2 rounded-lg font-semibold">
+                Aceptar
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // ==================== CONFIGURACIÓN FIREBASE ====================
+        let firebaseConfig = null;
+        let db = null;
+        let demoMode = false;
+        
+        // Verificar si hay config guardada
+        const savedConfig = localStorage.getItem('impostor_firebase_config');
+        if (savedConfig) {
+            firebaseConfig = JSON.parse(savedConfig);
+            initFirebase();
+        }
+
+        function saveFirebaseConfig() {
+            const input = document.getElementById('firebaseConfigInput').value.trim();
+            try {
+                const config = JSON.parse(input);
+                if (!config.apiKey || !config.databaseURL) {
+                    throw new Error('Configuración inválida');
+                }
+                firebaseConfig = config;
+                localStorage.setItem('impostor_firebase_config', JSON.stringify(config));
+                initFirebase();
+            } catch (e) {
+                showNotification('Error', 'Configuración inválida. Asegúrate de pegar el objeto JSON completo.', '❌');
+            }
+        }
+
+        function enableDemoMode() {
+            demoMode = true;
+            document.getElementById('firebaseConfigModal').classList.add('hidden');
+            document.getElementById('homeScreen').classList.remove('hidden');
+            showNotification('Modo Demo', 'Estás en modo offline. Solo podrás jugar localmente.', '👤');
+        }
+
+        function initFirebase() {
+            if (!firebase.apps.length) {
+                firebase.initializeApp(firebaseConfig);
+            }
+            db = firebase.database();
+            document.getElementById('firebaseConfigModal').classList.add('hidden');
+            document.getElementById('homeScreen').classList.remove('hidden');
+            showNotification('¡Conectado!', 'Base de datos lista para jugar multiplayer', '✅');
+        }
+
+        // ==================== ESTADO DEL JUEGO ====================
+        let currentRoom = null;
+        let playerName = '';
+        let isHost = false;
+        let myPlayerId = null;
+        let roomRef = null;
+        let roomListeners = [];
+        
+        // Palabras por categorías
+        const wordList = {
+            animales: ['León', 'Elefante', 'Tiburón', 'Águila', 'Pingüino', 'Canguro', 'Jirafa', 'Delfín', 'Tigre', 'Oso'],
+            comida: ['Pizza', 'Sushi', 'Hamburguesa', 'Tacos', 'Pasta', 'Ensalada', 'Chocolate', 'Helado', 'Paella', 'Curry'],
+            lugares: ['Playa', 'Montaña', 'Ciudad', 'Desierto', 'Bosque', 'Isla', 'Cueva', 'Cascada', 'Pirámide', 'Castillo'],
+            objetos: ['Reloj', 'Teléfono', 'Guitarra', 'Bicicleta', 'Libro', 'Cámara', 'Lámpara', 'Maleta', 'Paraguas', 'Telescopio'],
+            profesiones: ['Médico', 'Piloto', 'Chef', 'Astronauta', 'Bombero', 'Profesor', 'Músico', 'Detective', 'Arquitecto', 'Veterinario'],
+            peliculas: ['Star Wars', 'Titanic', 'Jurassic Park', 'Harry Potter', 'Matrix', 'Avengers', 'Frozen', 'Batman', 'Spider-Man', 'Avatar']
+        };
+
+        // ==================== FUNCIONES DE NAVEGACIÓN ====================
+        function showJoinRoom() {
+            playerName = document.getElementById('playerName').value.trim();
+            if (!playerName) {
+                showNotification('Error', 'Por favor introduce tu nombre primero', '⚠️');
+                return;
+            }
+            document.getElementById('homeScreen').classList.add('hidden');
+            document.getElementById('joinScreen').classList.remove('hidden');
+            document.getElementById('roomCode').focus();
+        }
+
+        function showHome() {
+            document.getElementById('joinScreen').classList.add('hidden');
+            document.getElementById('homeScreen').classList.remove('hidden');
+        }
+
+        // ==================== CREAR SALA ====================
+        function createRoom() {
+            playerName = document.getElementById('playerName').value.trim();
+            if (!playerName) {
+                showNotification('Error', 'Por favor introduce tu nombre', '⚠️');
+                return;
+            }
+
+            if (demoMode) {
+                // Modo demo - crear sala local
+                currentRoom = generateRoomCode();
+                isHost = true;
+                myPlayerId = 'player_' + Date.now();
+                showLobby();
+                updatePlayersList([{id: myPlayerId, name: playerName, isHost: true, online: true}]);
+                return;
+            }
+
+            if (!db) {
+                showNotification('Error', 'No hay conexión a la base de datos', '❌');
+                return;
+            }
+
+            currentRoom = generateRoomCode();
+            isHost = true;
+            myPlayerId = 'player_' + Date.now();
+
+            const roomData = {
+                created: firebase.database.ServerValue.TIMESTAMP,
+                status: 'waiting',
+                host: myPlayerId,
+                players: {
+                    [myPlayerId]: {
+                        name: playerName,
+                        isHost: true,
+                        online: true,
+                        joinedAt: firebase.database.ServerValue.TIMESTAMP
+                    }
+                },
+                maxPlayers: 10
+            };
+
+            roomRef = db.ref('rooms/' + currentRoom);
+            roomRef.set(roomData).then(() => {
+                // Escuchar cambios en la sala
+                setupRoomListeners();
+                showLobby();
+            }).catch(err => {
+                showNotification('Error', 'No se pudo crear la sala: ' + err.message, '❌');
+            });
+        }
+
+        // ==================== UNIRSE A SALA ====================
+        function joinRoom() {
+            const code = document.getElementById('roomCode').value.trim().toUpperCase();
+            if (code.length !== 4) {
+                showNotification('Error', 'El código debe tener 4 letras', '⚠️');
+                return;
+            }
+
+            playerName = document.getElementById('playerName').value.trim() || 'Jugador';
+            currentRoom = code;
+            myPlayerId = 'player_' + Date.now();
+
+            if (demoMode) {
+                showNotification('Modo Demo', 'En modo demo no puedes unirte a salas reales', '⚠️');
+                return;
+            }
+
+            if (!db) return;
+
+            roomRef = db.ref('rooms/' + currentRoom);
+            
+            // Verificar si la sala existe
+            roomRef.once('value').then(snapshot => {
+                if (!snapshot.exists()) {
+                    showNotification('Error', 'Sala no encontrada', '❌');
+                    return;
+                }
+
+                const roomData = snapshot.val();
+                const playerCount = Object.keys(roomData.players || {}).length;
+                
+                if (playerCount >= 10) {
+                    showNotification('Error', 'Sala llena (máximo 10 jugadores)', '⚠️');
+                    return;
+                }
+
+                if (roomData.status !== 'waiting') {
+                    showNotification('Error', 'El juego ya ha comenzado', '⚠️');
+                    return;
+                }
+
+                // Añadir jugador a la sala
+                return roomRef.child('players/' + myPlayerId).set({
+                    name: playerName,
+                    isHost: false,
+                    online: true,
+                    joinedAt: firebase.database.ServerValue.TIMESTAMP
+                });
+            }).then(() => {
+                isHost = false;
+                setupRoomListeners();
+                showLobby();
+                
+                // Configurar desconexión automática
+                roomRef.child('players/' + myPlayerId).onDisconnect().remove();
+            }).catch(err => {
+                showNotification('Error', err.message, '❌');
+            });
+        }
+
+        // ==================== LISTENERS DE LA SALA ====================
+        function setupRoomListeners() {
+            // Limpiar listeners anteriores
+            roomListeners.forEach(unsub => unsub && unsub());
+            roomListeners = [];
+
+            if (demoMode) return;
+
+            // Escuchar cambios en jugadores
+            const playersRef = roomRef.child('players');
+            const onPlayersChange = playersRef.on('value', snapshot => {
+                const players = snapshot.val() || {};
+                const playersList = Object.entries(players).map(([id, data]) => ({
+                    id,
+                    ...data
+                }));
+                updatePlayersList(playersList);
+            });
+            roomListeners.push(() => playersRef.off('value', onPlayersChange));
+
+            // Escuchar cambios en el estado del juego
+            const onGameChange = roomRef.on('value', snapshot => {
+                const data = snapshot.val();
+                if (!data) return;
+
+                if (data.status === 'playing' && document.getElementById('lobbyScreen').classList.contains('hidden') === false) {
+                    startLocalGame(data.game);
+                } else if (data.status === 'voting' && document.getElementById('gameScreen').classList.contains('hidden') === false) {
+                    startVotingPhase(data.game);
+                } else if (data.status === 'finished' && document.getElementById('votingScreen').classList.contains('hidden') === false) {
+                    showResults(data.game);
+                }
+
+                // Actualizar turno si estamos en juego
+                if (data.game && data.game.currentTurn) {
+                    updateTurnDisplay(data.game);
+                }
+
+                // Actualizar pistas
+                if (data.game && data.game.clues) {
+                    updateCluesList(data.game.clues);
+                }
+            });
+            roomListeners.push(() => roomRef.off('value', onGameChange));
+        }
+
+        // ==================== UI LOBBY ====================
+        function showLobby() {
+            document.getElementById('homeScreen').classList.add('hidden');
+            document.getElementById('joinScreen').classList.add('hidden');
+            document.getElementById('lobbyScreen').classList.remove('hidden');
+            
+            document.getElementById('displayRoomCode').textContent = currentRoom;
+            document.getElementById('shareLink').textContent = window.location.origin + window.location.pathname + '?room=' + currentRoom;
+            
+            if (isHost) {
+                document.getElementById('startGameBtn').classList.remove('hidden');
+            } else {
+                document.getElementById('startGameBtn').classList.add('hidden');
+            }
+        }
+
+        function updatePlayersList(players) {
+            const container = document.getElementById('playersList');
+            const count = document.getElementById('playerCount');
+            
+            count.textContent = players.length;
+            container.innerHTML = '';
+            
+            players.forEach((player, index) => {
+                const isMe = player.id === myPlayerId;
+                const div = document.createElement('div');
+                div.className = `player-card glass-panel rounded-xl p-4 text-center ${player.online === false ? 'opacity-50' : ''}`;
+                div.innerHTML = `
+                    <div class="text-4xl mb-2">${getAvatar(index)}</div>
+                    <div class="font-semibold ${player.isHost ? 'text-purple-300' : 'text-white'}">
+                        ${player.name} ${player.isHost ? '👑' : ''}
+                    </div>
+                    <div class="text-xs ${isMe ? 'text-green-400' : 'text-gray-400'} mt-1">
+                        ${isMe ? 'Tú' : (player.online === false ? 'Desconectado' : 'Conectado')}
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+
+            // Habilitar botón de inicio si hay suficientes jugadores
+            if (isHost && players.length >= 3) {
+                document.getElementById('startGameBtn').classList.remove('opacity-50', 'cursor-not-allowed');
+            } else if (isHost) {
+                document.getElementById('startGameBtn').classList.add('opacity-50', 'cursor-not-allowed');
+            }
+        }
+
+        function getAvatar(index) {
+            const avatars = ['👨‍🚀', '👩‍🚀', '👨‍🎤', '👩‍🎤', '🦸‍♂️', '🦸‍♀️', '🤠', '👽', '🤖', '👻'];
+            return avatars[index % avatars.length];
+        }
+
+        function copyRoomCode() {
+            const text = currentRoom;
+            navigator.clipboard.writeText(text).then(() => {
+                showNotification('¡Copiado!', 'Código copiado al portapapeles', '📋');
+            });
+        }
+
+        function leaveRoom() {
+            if (roomRef && !demoMode) {
+                roomRef.child('players/' + myPlayerId).remove();
+                roomListeners.forEach(unsub => unsub && unsub());
+            }
+            location.reload();
+        }
+
+        // ==================== INICIAR JUEGO ====================
+        function startGame() {
+            if (demoMode) {
+                // Simular inicio en modo demo
+                const categories = Object.keys(wordList);
+                const category = categories[Math.floor(Math.random() * categories.length)];
+                const words = wordList[category];
+                const word = words[Math.floor(Math.random() * words.length)];
+                
+                const players = [{id: myPlayerId, name: playerName}];
+                const impostorIndex = 0;
+                
+                startLocalGame({
+                    word: word,
+                    category: category,
+                    impostorId: players[impostorIndex].id,
+                    players: players,
+                    round: 1,
+                    currentTurn: 0,
+                    clues: []
+                });
+                return;
+            }
+
+            if (!isHost) return;
+
+            roomRef.once('value').then(snapshot => {
+                const roomData = snapshot.val();
+                const players = Object.entries(roomData.players).map(([id, data]) => ({
+                    id,
+                    name: data.name
+                }));
+
+                if (players.length < 3) {
+                    showNotification('Error', 'Se necesitan al menos 3 jugadores', '⚠️');
+                    return;
+                }
+
+                // Seleccionar categoría y palabra
+                const categories = Object.keys(wordList);
+                const category = categories[Math.floor(Math.random() * categories.length)];
+                const words = wordList[category];
+                const word = words[Math.floor(Math.random() * words.length)];
+                
+                // Seleccionar impostor aleatorio
+                const impostorIndex = Math.floor(Math.random() * players.length);
+
+                const gameData = {
+                    word: word,
+                    category: category,
+                    impostorId: players[impostorIndex].id,
+                    players: players,
+                    round: 1,
+                    currentTurn: 0,
+                    clues: [],
+                    votes: {},
+                    phase: 'playing'
+                };
+
+                return roomRef.update({
+                    status: 'playing',
+                    game: gameData
+                });
+            });
+        }
+
+        // ==================== JUEGO LOCAL ====================
+        let gameState = null;
+        let isImpostor = false;
+
+        function startLocalGame(gameData) {
+            gameState = gameData;
+            isImpostor = gameData.impostorId === myPlayerId;
+
+            document.getElementById('lobbyScreen').classList.add('hidden');
+            document.getElementById('gameScreen').classList.remove('hidden');
+
+            // Mostrar rol
+            if (isImpostor) {
+                document.getElementById('roleDisplay').classList.add('hidden');
+                document.getElementById('impostorView').classList.remove('hidden');
+            } else {
+                document.getElementById('roleDisplay').classList.remove('hidden');
+                document.getElementById('impostorView').classList.add('hidden');
+                document.getElementById('secretWord').textContent = gameData.word;
+            }
+
+            updateTurnDisplay(gameData);
+            updateCluesList(gameData.clues || []);
+        }
+
+        function updateTurnDisplay(gameData) {
+            if (!gameData) return;
+            
+            document.getElementById('currentRound').textContent = gameData.round;
+            
+            const currentPlayer = gameData.players[gameData.currentTurn];
+            if (currentPlayer) {
+                document.getElementById('currentTurn').textContent = currentPlayer.name;
+                
+                const isMyTurn = currentPlayer.id === myPlayerId;
+                if (isMyTurn && gameData.phase === 'playing') {
+                    document.getElementById('clueInputArea').classList.remove('hidden');
+                    document.getElementById('waitingArea').classList.add('hidden');
+                    document.getElementById('clueInput').focus();
+                } else {
+                    document.getElementById('clueInputArea').classList.add('hidden');
+                    document.getElementById('waitingArea').classList.remove('hidden');
+                }
+            }
+        }
+
+        function updateCluesList(clues) {
+            const container = document.getElementById('cluesList');
+            
+            if (!clues || clues.length === 0) {
+                container.innerHTML = '<p class="text-gray-500 italic">Aún no hay pistas...</p>';
+                return;
+            }
+            
+            container.innerHTML = clues.map((c, i) => `
+                <div class="glass-panel rounded-lg p-3 flex justify-between items-center animate-pulse-slow" style="animation-delay: ${i * 0.1}s">
+                    <span class="font-semibold text-purple-300">${c.player}:</span>
+                    <span class="text-xl font-bold text-white">"${c.clue}"</span>
+                </div>
+            `).join('');
+            
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function submitClue() {
+            const input = document.getElementById('clueInput');
+            const clue = input.value.trim();
+            
+            if (!clue) return;
+            if (clue.includes(' ')) {
+                showNotification('Error', 'Solo una palabra permitida (sin espacios)', '⚠️');
+                return;
+            }
+
+            input.value = '';
+
+            if (demoMode) {
+                // Modo demo - actualizar localmente
+                const currentPlayer = gameState.players[gameState.currentTurn];
+                gameState.clues.push({player: currentPlayer.name, clue: clue});
+                updateCluesList(gameState.clues);
+                
+                // Pasar al siguiente turno
+                gameState.currentTurn++;
+                if (gameState.currentTurn >= gameState.players.length) {
+                    gameState.currentTurn = 0;
+                    gameState.round++;
+                    if (gameState.round > 2) {
+                        startVotingPhase(gameState);
+                        return;
+                    }
+                }
+                updateTurnDisplay(gameState);
+                return;
+            }
+
+            // Enviar a Firebase
+            const currentPlayer = gameState.players[gameState.currentTurn];
+            const newClue = {player: currentPlayer.name, clue: clue};
+            
+            roomRef.child('game/clues').push(newClue).then(() => {
+                // Avanzar turno
+                let nextTurn = gameState.currentTurn + 1;
+                let nextRound = gameState.round;
+                
+                if (nextTurn >= gameState.players.length) {
+                    nextTurn = 0;
+                    nextRound++;
+                }
+                
+                if (nextRound > 2) {
+                    // Iniciar votación
+                    return roomRef.update({
+                        'game/phase': 'voting',
+                        status: 'voting'
+                    });
+                } else {
+                    return roomRef.update({
+                        'game/currentTurn': nextTurn,
+                        'game/round': nextRound
+                    });
+                }
+            });
+        }
+
+        // ==================== VOTACIÓN ====================
+        function startVotingPhase(gameData) {
+            document.getElementById('gameScreen').classList.add('hidden');
+            document.getElementById('votingScreen').classList.remove('hidden');
+
+            const container = document.getElementById('votingList');
+            container.innerHTML = '';
+            
+            const players = gameData.players || gameState.players;
+            
+            players.forEach((player, index) => {
+                if (player.id === myPlayerId) return; // No votarse a sí mismo
+                
+                const btn = document.createElement('button');
+                btn.className = 'player-card glass-panel rounded-xl p-6 hover:bg-white/10 transition text-center';
+                btn.innerHTML = `
+                    <div class="text-4xl mb-2">${getAvatar(index)}</div>
+                    <div class="font-bold text-lg">${player.name}</div>
+                `;
+                btn.onclick = () => castVote(player.id);
+                container.appendChild(btn);
+            });
+
+            // Opción de abstención
+            const abstainBtn = document.createElement('button');
+            abstainBtn.className = 'glass-panel rounded-xl p-6 hover:bg-white/10 transition text-center col-span-2 md:col-span-3 border-dashed border-2';
+            abstainBtn.innerHTML = '<div class="text-xl font-bold text-gray-400">No estoy seguro</div>';
+            abstainBtn.onclick = () => castVote('abstain');
+            container.appendChild(abstainBtn);
+
+            updateVotingStatus(gameData.votes || {});
+        }
+
+        function castVote(votedFor) {
+            if (demoMode) {
+                showNotification('Modo Demo', 'Voto registrado localmente', '✅');
+                calculateResults();
+                return;
+            }
+
+            roomRef.child('game/votes/' + myPlayerId).set(votedFor).then(() => {
+                // Verificar si todos votaron
+                return roomRef.child('game/votes').once('value');
+            }).then(snapshot => {
+                const votes = snapshot.val() || {};
+                const voteCount = Object.keys(votes).length;
+                const totalPlayers = gameState.players.length;
+                
+                document.getElementById('votesCount').textContent = voteCount;
+                
+                if (voteCount >= totalPlayers) {
+                    calculateResults();
+                }
+            });
+        }
+
+        function updateVotingStatus(votes) {
+            const count = Object.keys(votes).length;
+            const total = gameState ? gameState.players.length : 0;
+            document.getElementById('votesCount').textContent = count;
+            document.getElementById('totalVoters').textContent = total;
+        }
+
+        // ==================== RESULTADOS ====================
+        function calculateResults() {
+            if (demoMode) {
+                showResults({
+                    word: gameState.word,
+                    impostorId: gameState.impostorId,
+                    impostorName: gameState.players.find(p => p.id === gameState.impostorId)?.name || 'Desconocido',
+                    votedPlayer: gameState.players[0].id // Simular que votaron al primero
+                });
+                return;
+            }
+
+            roomRef.child('game').once('value').then(snapshot => {
+                const game = snapshot.val();
+                const votes = game.votes || {};
+                
+                // Contar votos
+                const voteCounts = {};
+                Object.values(votes).forEach(v => {
+                    voteCounts[v] = (voteCounts[v] || 0) + 1;
+                });
+                
+                // Encontrar el más votado
+                let maxVotes = 0;
+                let votedPlayer = null;
+                for (const [playerId, count] of Object.entries(voteCounts)) {
+                    if (count > maxVotes && playerId !== 'abstain') {
+                        maxVotes = count;
+                        votedPlayer = playerId;
+                    }
+                }
+
+                const impostor = game.players.find(p => p.id === game.impostorId);
+                
+                showResults({
+                    word: game.word,
+                    impostorId: game.impostorId,
+                    impostorName: impostor ? impostor.name : 'Desconocido',
+                    votedPlayer: votedPlayer,
+                    votes: voteCounts
+                });
+
+                // Actualizar estado en Firebase
+                roomRef.update({
+                    status: 'finished',
+                    'game/result': {
+                        impostorCaught: votedPlayer === game.impostorId,
+                        votedPlayer: votedPlayer
+                    }
+                });
+            });
+        }
+
+        function showResults(data) {
+            document.getElementById('votingScreen').classList.add('hidden');
+            document.getElementById('resultScreen').classList.remove('hidden');
+
+            const iWasImpostor = isImpostor;
+            const impostorCaught = data.votedPlayer === data.impostorId;
+            
+            let title, content;
+
+            if (iWasImpostor) {
+                if (impostorCaught) {
+                    title = '¡Te han descubierto! 😅';
+                    content = `
+                        <div class="text-6xl mb-4">🎭</div>
+                        <p class="text-xl mb-4">Los tripulantes ganan</p>
+                        <p class="text-gray-400">La palabra era: <span class="text-purple-400 font-bold text-2xl">${data.word}</span></p>
+                    `;
+                } else {
+                    title = '¡Victoria del Impostor! 🎉';
+                    content = `
+                        <div class="text-6xl mb-4">🎭</div>
+                        <p class="text-xl mb-4">Has engañado a todos</p>
+                        <p class="text-gray-400">La palabra era: <span class="text-purple-400 font-bold text-2xl">${data.word}</span></p>
+                    `;
+                }
+            } else {
+                if (impostorCaught) {
+                    title = '¡Victoria de los Tripulantes! 🎉';
+                    content = `
+                        <div class="text-6xl mb-4">👨‍🚀</div>
+                        <p class="text-xl mb-4">Atrapaste al impostor: <span class="text-red-400 font-bold">${data.impostorName}</span></p>
+                        <p class="text-gray-400">La palabra era: <span class="text-purple-400 font-bold text-2xl">${data.word}</span></p>
+                    `;
+                } else {
+                    title = '¡El Impostor Escapó! 😱';
+                    content = `
+                        <div class="text-6xl mb-4">🎭</div>
+                        <p class="text-xl mb-4">El impostor fue: <span class="text-red-400 font-bold">${data.impostorName}</span></p>
+                        <p class="text-gray-400">La palabra era: <span class="text-purple-400 font-bold text-2xl">${data.word}</span></p>
+                    `;
+                }
+            }
+
+            document.getElementById('resultTitle').textContent = title;
+            document.getElementById('resultContent').innerHTML = content;
+        }
+
+        function playAgain() {
+            if (demoMode) {
+                location.reload();
+                return;
+            }
+
+            if (isHost) {
+                roomRef.update({
+                    status: 'waiting',
+                    game: null
+                }).then(() => {
+                    document.getElementById('resultScreen').classList.add('hidden');
+                    document.getElementById('lobbyScreen').classList.remove('hidden');
+                });
+            } else {
+                location.reload();
+            }
+        }
+
+        function backToLobby() {
+            location.reload();
+        }
+
+        // ==================== UTILIDADES ====================
+        function generateRoomCode() {
+            const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+            let code = '';
+            for (let i = 0; i < 4; i++) {
+                code += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            return code;
+        }
+
+        function showNotification(title, message, icon = 'ℹ️') {
+            document.getElementById('notificationTitle').textContent = title;
+            document.getElementById('notificationMessage').textContent = message;
+            document.getElementById('notificationIcon').textContent = icon;
+            document.getElementById('notificationModal').classList.remove('hidden');
+        }
+
+        function closeNotification() {
+            document.getElementById('notificationModal').classList.add('hidden');
+        }
+
+        // ==================== INICIALIZACIÓN ====================
+        window.onload = () => {
+            // Verificar si hay código de sala en la URL
+            const urlParams = new URLSearchParams(window.location.search);
+            const roomFromUrl = urlParams.get('room');
+            if (roomFromUrl) {
+                document.getElementById('roomCode').value = roomFromUrl;
+            }
+
+            // Configurar enter en inputs
+            document.getElementById('playerName').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') createRoom();
+            });
+            document.getElementById('roomCode').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') joinRoom();
+            });
+            document.getElementById('clueInput').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') submitClue();
+            });
+            document.getElementById('firebaseConfigInput').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter' && e.ctrlKey) saveFirebaseConfig();
+            });
+        };
+    </script>
+</body>
+</html>
